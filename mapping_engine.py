@@ -53,3 +53,32 @@ class MappingEngine:
         return final_data
 
 
+    def calculate_scores(self, source_text, target_texts):
+        """Helper to calculate similarity between one string and a list of strings."""
+
+        source_emb = self.model.encode(str(source_text), convert_to_tensor=True)
+        target_embs = self.model.encode([str(t) for t in target_texts], convert_to_tensor=True)
+        
+        cosine_scores = util.cos_sim(source_emb, target_embs)[0]
+        return cosine_scores.tolist()
+
+    def get_smart_name_matches(self, home_row, partner_df, threshold=0.45):
+        """
+        Comparison between the NUS module name and all PU module names in the database.
+        Returns a list of Mapping objects.
+        """
+        if partner_df.empty:
+            return []
+
+        source_name = home_row['nus_mod']
+        target_names = partner_df['pu_mod'].tolist()
+
+        scores = self.calculate_scores(source_name, target_names)
+
+        name_matches = []
+        for idx, score in enumerate(scores):
+            if score >= threshold:
+                name_matches.append(Mapping(home_row, partner_df.iloc[idx], score))
+
+        name_matches.sort(key=lambda x: x.similarity_score, reverse=True)
+        return name_matches

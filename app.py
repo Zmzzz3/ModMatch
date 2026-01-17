@@ -63,18 +63,33 @@ if st.button("Generate Comparison Preview", type="primary"):
     h_rows = home_sel.selection.rows
     p_rows = partner_sel.selection.rows
 
-    if h_rows and p_rows:
-        # Get data from storage using selection indices
-        data_bundle = storage.get_course_pairs(h_rows[0], p_rows)
+    if h_rows:
+        selected_nus = storage.get_nus_entries().iloc[h_rows[0]]
         
-        # call engine to generate 1-to-1 Mapping objects
-        st.session_state.preview = engine.get_preview_pairings(
-            data_bundle['nus_course'].iloc[0], 
-            data_bundle['partner_courses']
-        )
-        st.success(f"Calculated {len(st.session_state.preview)} similarity scores!")
+        # SCENARIO A: Manual Description Check
+        if p_rows:
+            data_bundle = storage.get_course_pairs(h_rows[0], p_rows)
+            st.session_state.preview = engine.get_preview_pairings(
+                data_bundle['nus_course'].iloc[0], 
+                data_bundle['partner_courses']
+            )
+            st.success(f"Description similarity calculated for {len(p_rows)} courses.")
+            
+        # SCENARIO B: Smart Name Match
+        else:
+            with st.spinner("Scanning all university course names..."):
+                all_partners = storage.get_partner_entries()
+                st.session_state.preview = engine.get_smart_name_matches(
+                    selected_nus, 
+                    all_partners
+                )
+            
+            if st.session_state.preview:
+                st.success(f"Found {len(st.session_state.preview)} modules with similar names!")
+            else:
+                st.warning("No modules with similar names found in the database.")
     else:
-        st.warning("Please select 1 NUS module and at least 1 Partner course.")
+        st.warning("Please select 1 NUS module on the left.")
 
 st.divider()
 
@@ -83,7 +98,6 @@ if st.session_state.preview:
     st.header("Step 2: Review & Finalize Mappings")
     st.write("Select the pairings you want to save to your final plan.")
     
-    # Prepare data for the preview dataframe
     preview_df = pd.DataFrame([{
         "NUS Code": m.home_row['nus_code'],
         "Partner": m.partner_row['pu'],
@@ -103,13 +117,11 @@ if st.session_state.preview:
         selected_preview_indices = review_sel.selection.rows
         
         if selected_preview_indices:
-            # use engine to extract original indices from our Mapping objects
             final_payload = engine.finalize_selections(
                 st.session_state.preview, 
                 selected_preview_indices
             )
             
-            # Pass directly to CourseStorage pairing logic
             storage.add_pairing(
                 nus_index=final_payload["nus_index"],
                 partner_index=final_payload["partner_indices"],
