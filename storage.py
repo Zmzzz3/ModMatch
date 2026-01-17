@@ -1,5 +1,6 @@
 import pandas as pd
 from typing import Union, List, Optional, Dict, Any, Tuple
+from file_operations import FileManager
 
 
 class CourseStorage:
@@ -7,9 +8,13 @@ class CourseStorage:
     
     def __init__(self):
         """Initialize storage with empty dataframes."""
-        self.nus_df = self._create_nus_df()
-        self.partner_df = self._create_partner_df()
-        self.pairings_df = self._create_pairings_df()
+        self.fm = FileManager()
+        
+        # Auto-load on startup
+        data = self.fm.read_all()
+        self.nus_df = data['nus'] if data['nus'] is not None else self._create_nus_df()
+        self.partner_df = data['pu'] if data['pu'] is not None else self._create_partner_df()
+        self.pairings_df = data['mapping'] if data['mapping'] is not None else self._create_pairings_df()
     
     def _create_nus_df(self) -> pd.DataFrame:
         """Create an empty NUS modules dataframe."""
@@ -472,64 +477,35 @@ class CourseStorage:
         self.pairings_df = self._create_pairings_df()
 
 
-    # ==================== Persistence Operations ====================
+    def sync_to_disk(self):
+        """Invisible background operation: Save all current memory to app data files."""
+        self.fm.write_all(self.nus_df, self.partner_df, self.pairings_df)
 
-    def load_from_csv(self, nus_path: str, partner_path: str):
+    def import_external_pu(self, filepath: str):
         """
-        Load data from CSV files into the storage manager.
+        User provides filepath -> call import method -> 
+        use processed df as argument to append entries method.
         """
-        try:
-            home_df = pd.read_csv(nus_path)
-            self.replace_nus_df(home_df)
-            
-            partner_df = pd.read_csv(partner_path)
-            self.replace_partner_df(partner_df)
-            
-            print(f"✅ Successfully loaded data from {nus_path} and {partner_path}")
-        except FileNotFoundError as e:
-            print(f"❌ Error: Could not find file - {e}")
-        except Exception as e:
-            print(f"❌ An error occurred: {e}")
+        # this is a df
+        new_data = self.fm.import_pu(filepath)
+        
+        # 2. Call existing append method to concatenate and sort in memory
+        self.append_partner_entries(new_data)
+        
+        # 3. Save the newly expanded list to the hidden app data file
+        self.fm.write_pu(self.partner_df)
 
+    def import_external_nus(self, filepath: str):
+        """Concatenate external NUS modules from a user path to app storage."""
+        new_data = self.fm.import_nus(filepath)
+        self.append_nus_entries(new_data)
+        self.fm.write_nus(self.nus_df)
 
-
-    def import_source_data(self, nus_path: str, partner_path: str) -> None:
+    def export_exchange_plan(self, destination_path: str):
         """
-        Load the initial university module lists from CSV.
-        """
-        try:
-            if nus_path:
-                df_h = pd.read_csv(nus_path)
-                self.replace_nus_df(df_h)
-            
-            if partner_path:
-                df_p = pd.read_csv(partner_path)
-                self.replace_partner_df(df_p)
-        except Exception as e:
-            raise Exception(f"Failed to import source data: {e}")
-
-
-    def export_pairings(self, filepath: str = "data/exchange_plan.csv") -> None:
-        """
-        Export the finalized exchange plan (pairings_df) to a CSV file.
+        Export strictly the mapping/plan data to a user-desired location.
         """
         if self.pairings_df.empty:
-            raise ValueError("No pairings to export.")
-        self.pairings_df.to_csv(filepath, index=False)
-
-
-    def import_pairings(self, filepath: str) -> None:
-        """
-        Load a previously saved exchange plan into the pairings_df.
-        """
-        try:
-            df = pd.read_csv(filepath)
-            required_cols = ['nus_code', 'pu', 'pu_code', 'score']
-            
-            # Basic validation to ensure the CSV matches our schema
-            if not all(col in df.columns for col in required_cols):
-                raise ValueError(f"CSV missing required columns: {required_cols}")
-            
-            self.pairings_df = self._sort_pairings_df(df[required_cols])
-        except Exception as e:
-            raise Exception(f"Failed to import pairings: {e}")
+            raise ValueError("The exchange plan is empty. Nothing to export.")
+        
+        self.fm.export_mapping(destination_path)
