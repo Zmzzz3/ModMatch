@@ -470,3 +470,66 @@ class CourseStorage:
         self.nus_df = self._create_nus_df()
         self.partner_df = self._create_partner_df()
         self.pairings_df = self._create_pairings_df()
+
+
+    # ==================== Persistence Operations ====================
+
+    def load_from_csv(self, nus_path: str, partner_path: str):
+        """
+        Load data from CSV files into the storage manager.
+        """
+        try:
+            home_df = pd.read_csv(nus_path)
+            self.replace_nus_df(home_df)
+            
+            partner_df = pd.read_csv(partner_path)
+            self.replace_partner_df(partner_df)
+            
+            print(f"✅ Successfully loaded data from {nus_path} and {partner_path}")
+        except FileNotFoundError as e:
+            print(f"❌ Error: Could not find file - {e}")
+        except Exception as e:
+            print(f"❌ An error occurred: {e}")
+
+
+
+    def import_source_data(self, nus_path: str, partner_path: str) -> None:
+        """
+        Load the initial university module lists from CSV.
+        """
+        try:
+            if nus_path:
+                df_h = pd.read_csv(nus_path)
+                self.replace_nus_df(df_h)
+            
+            if partner_path:
+                df_p = pd.read_csv(partner_path)
+                self.replace_partner_df(df_p)
+        except Exception as e:
+            raise Exception(f"Failed to import source data: {e}")
+
+
+    def export_pairings(self, filepath: str = "data/exchange_plan.csv") -> None:
+        """
+        Export the finalized exchange plan (pairings_df) to a CSV file.
+        """
+        if self.pairings_df.empty:
+            raise ValueError("No pairings to export.")
+        self.pairings_df.to_csv(filepath, index=False)
+
+
+    def import_pairings(self, filepath: str) -> None:
+        """
+        Load a previously saved exchange plan into the pairings_df.
+        """
+        try:
+            df = pd.read_csv(filepath)
+            required_cols = ['nus_code', 'pu', 'pu_code', 'score']
+            
+            # Basic validation to ensure the CSV matches our schema
+            if not all(col in df.columns for col in required_cols):
+                raise ValueError(f"CSV missing required columns: {required_cols}")
+            
+            self.pairings_df = self._sort_pairings_df(df[required_cols])
+        except Exception as e:
+            raise Exception(f"Failed to import pairings: {e}")

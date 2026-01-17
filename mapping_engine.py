@@ -1,74 +1,55 @@
 from sentence_transformers import SentenceTransformer, util
-from module import Module
 
 class Mapping:
-    def __init__(self, home_module, partner_module, similarity_score=0.0):
-        self.home_module = home_module
-        self.partner_module = partner_module
-        self.similarity_score = similarity_score
-        self.status = "Pending"
-        self.ai_commentary = ""
-    
-    def set_similarity_score(self, score:float):
+    def __init__(self, home_row, partner_row, score=0.0):
+        self.home_row = home_row         # Pandas Series from nus_df
+        self.partner_row = partner_row   # Pandas Series from partner_df
         self.similarity_score = score
 
 class MappingEngine:
-    def __init__(self):   
+    def __init__(self):
         self.model = SentenceTransformer('all-MiniLM-L6-v2')
 
-    def check_and_score_mapping(self, mapping:Mapping):
+    def score_mapping(self, home_row, partner_row):
         """
-        Takes two specific Module objects and returns their similarity score.
+        Calculates similarity using the new storage column names:
+        'nus_desc' for Home and 'pu_desc' for Partner.
         """
-        mod_a = mapping.home_module
-        mod_b = mapping.partner_module
-        text_a = mod_a.description
-        text_b = mod_b.description
+        text_a = str(home_row['nus_desc'])
+        text_b = str(partner_row['pu_desc'])
         
         embeddings = self.model.encode([text_a, text_b], convert_to_tensor=True)
-        
-        score = util.cos_sim(embeddings[0], embeddings[1])
+        score = float(util.cos_sim(embeddings[0], embeddings[1]))
+        return score
 
-        mapping.set_similarity_score(float(score))
-
-        return float(score)
-
-    def print_mapping_result(self, mapping:Mapping):
+    def get_preview_pairings(self, home_row, partner_rows):
         """
-        Prints the two mods' description and the similarity score.
-    
-        :param mapping: Mapping object
+        Generates 1-to-1 candidate Mapping objects for the Preview table.
         """
-        home_mod = mapping.home_module
-        partner_mod = mapping.partner_module
-        home_mod.print_module()
-        partner_mod.print_module()
-        score = self.check_and_score_mapping(mapping)
-        print(f"\nComparison score: {score}")
+        preview_list = []
+        for _, p_row in partner_rows.iterrows():
+            score = self.score_mapping(home_row, p_row)
+            preview_list.append(Mapping(home_row, p_row, score))
+        return preview_list
 
+    def finalize_selections(self, preview_list, selected_preview_indices):
+        """
+        Prepares data specifically for CourseStorage.add_pairing().
+        Returns the original indices and the calculated scores.
+        """
+        final_data = {
+            "nus_index": None,
+            "partner_indices": [],
+            "scores": []
+        }
 
-if __name__ == "__main__":
-    
-    description1 = """This course introduces students to the design and implementation 
-        of fundamental data structures and algorithms. The course covers basic data 
-        structures (linked lists, stacks, queues, hash tables, binary heaps, trees, 
-        and graphs), searching and sorting algorithms, basic analysis of algorithms, 
-        and basic object-oriented programming concepts."""
+        for idx in selected_preview_indices:
+            m = preview_list[idx]
+            
+            final_data["nus_index"] = m.home_row.name 
+            final_data["partner_indices"].append(m.partner_row.name)
+            final_data["scores"].append(m.similarity_score)
+            
+        return final_data
 
-    cs2040c = Module("NUS", "Data Structures and Algorithms", "CS2040C", description1)
-    
-    description2 = """This course introduces students to the design and implementation of 
-        fundamental data structures and algorithms. The course covers basic data 
-        structures (linked lists, stacks, queues, hash tables, binary heaps, trees, 
-        and graphs), searching and sorting algorithms, and basic analysis of algorithms."""
-
-    cs2040s = Module("NUS2", "Data Structures Thing", "CS2040S", description2)
-
-    description3 = "This course introduces the topic of gender by using basic concepts like biological sex, nature, nurture, roles, norms and culture. The meaning of gender categories is examined in relation to difference, exchange, reproduction, knowledge and social change. Although the main perspective is ethnographic, this course is intended to be an exercise in interdisciplinary thinking. Understanding gender provides a foundation to analyze social structures (power and inequality), social institutions (family, kinship, education, economy, the state, health) and cultural issues (science, food, emotions, popular culture)."
-
-    sc2220 = Module("NUS3", "Gender Studies", "SC2220", description3)
-
-    mapping = Mapping(cs2040c, sc2220, 0)
-    map_engine = MappingEngine()
-    score = map_engine.print_mapping_result(mapping)
 
