@@ -546,21 +546,19 @@ class CourseStorage:
         """Invisible background operation: Save all current memory to app data files."""
         self.fm.write_all(self.nus_df, self.partner_df, self.pairings_df)
 
-    def import_external_pu(self, filepath: str):
-        """Concatenate external PU modules from a user path to app storage."""
-        # this is a df of the new PU modules being imported
-        new_data = self.fm.import_pu(filepath)
+    def import_external_pu(self, file_object):
+        """Browse for file -> Read -> Append -> Save to internal pu.csv"""
+        # Read the uploaded CSV into a temporary dataframe
+        new_data = pd.read_csv(file_object)
         
-        # concat to current df
+        # self.append_partner_entries handles the concat, sorting, 
+        # duplicate checking, AND calls fm.write_pu internally.
         self.append_partner_entries(new_data)
-        
-        self.fm.write_pu(self.partner_df)
 
-    def import_external_nus(self, filepath: str):
-        """Concatenate external NUS modules from a user path to app storage."""
-        new_data = self.fm.import_nus(filepath)
+    def import_external_nus(self, file_object):
+        """Browse for file -> Read -> Append -> Save to internal nus.csv"""
+        new_data = pd.read_csv(file_object)
         self.append_nus_entries(new_data)
-        self.fm.write_nus(self.nus_df)
 
     def export_exchange_plan(self, destination_path: str):
         """

@@ -18,12 +18,6 @@ st.markdown("""
 def init_backend():
     storage = CourseStorage()
     engine = MappingEngine()
-    
-    # Load default data from the /data folder automatically
-    try:
-        storage.import_source_data("data/home_modules.csv", "data/partner_modules.csv")
-    except Exception as e:
-        st.error(f"Initial data load failed: {e}")
         
     return storage, engine
 
@@ -138,15 +132,9 @@ pairings = storage.get_pairings()
 if pairings.empty:
     st.info("No pairings saved yet. Complete Step 1 and 2 to see your plan here.")
 else:
-    # 1. Action Header
     col_h1, col_h2 = st.columns([0.8, 0.2])
-    with col_h2:
-        if st.button("🗑️ Clear All", use_container_width=True):
-            storage.clear_all()
-            st.rerun()
+    
 
-    # 2. Table Header
-    # We create a simulated table header using columns
     st.markdown("""
         <div style='display: flex; font-weight: bold; border-bottom: 2px solid #ccc; padding-bottom: 5px; margin-bottom: 10px;'>
             <div style='flex: 2;'>NUS Module</div>
@@ -157,12 +145,11 @@ else:
         </div>
     """, unsafe_allow_html=True)
 
-    # 3. List of Pairings
+    # list of pairings
     for i, row in pairings.iterrows():
-        # Get full details for the expander content
+
         details = storage.get_course_details_for_pairing(i)
-        
-        # Create columns: 4 for data, 1 for the delete button
+
         c1, c2, c3, c4, c5 = st.columns([2, 2, 2, 1, 0.5])
         
         with c1:
@@ -172,18 +159,14 @@ else:
         with c3:
             st.write(row['pu_code'])
         with c4:
-            # Color the score based on strength
             score = row['score']
             color = "green" if score > 0.7 else "orange" if score > 0.4 else "red"
             st.markdown(f"<span style='color:{color}; font-weight:bold;'>{score:.1%}</span>", unsafe_allow_html=True)
         with c5:
-            # Delete button at the end of the row
             if st.button("❌", key=f"del_{i}", help="Remove this pairing"):
                 storage.remove_pairing(i)
                 st.rerun()
         
-        # 4. Integrated Dropdown for Details
-        # This sits immediately under the row data
         with st.expander("View Descriptions"):
             d_col1, d_col2 = st.columns(2)
             with d_col1:
@@ -197,43 +180,30 @@ else:
 
 # --- SIDEBAR: DATA PERSISTENCE & INTEGRATION ---
 with st.sidebar:
-    st.header("📥 Bulk Import")
-    st.write("Concatenate modules from an external CSV file into your app data.")
+    st.header("Import stuff")
+    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+    target = st.selectbox("Add to:", ["NUS Modules", "Partner Modules"])
     
-    # Text input for filepath as per your logic
-    import_path = st.text_input("Source CSV Filepath", placeholder="C:/path/to/your_data.csv")
-    target_list = st.selectbox("Import to:", ["Partner Modules", "NUS Modules"])
-    
-    if st.button("Import & Append"):
-        if import_path:
-            try:
-                if target_list == "Partner Modules":
-                    storage.import_external_pu(import_path)
-                else:
-                    storage.import_external_nus(import_path)
-                st.success("Data concatenated and saved to internal storage!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Import Error: {e}")
-        else:
-            st.warning("Please provide a valid filepath.")
-            
-    st.divider()
-    
-    st.header("Export Result")
-    st.write("Save a copy of your Exchange Plan to a custom location.")
-    
-    export_path = st.text_input("Export Destination Path", placeholder="C:/path/to/export_plan.csv")
-    
-    if st.button("Export Exchange Plan"):
-        if export_path:
-            try:
-                storage.export_exchange_plan(export_path)
-                st.success(f"Plan successfully exported to {export_path}")
-            except Exception as e:
-                st.error(f"Export Error: {e}")
-        else:
-            st.warning("Please provide a destination filepath.")
+    if st.button("Execute Import"):
+        if uploaded_file:
+            if target == "Partner Modules":
+                storage.import_external_pu(uploaded_file)
+            else:
+                storage.import_external_nus(uploaded_file)
+            st.success("Successfully imported!")
+            st.rerun()
 
-    st.divider()
-    st.caption("Internal data is saved automatically in the /data folder.")
+with st.sidebar:
+    st.header("Export Stuff")
+
+    csv_string = storage.fm.get_export_buffer('mapping')
+    
+    if csv_string:
+        st.download_button(
+            label="Download Plan as CSV",
+            data=csv_string,
+            file_name="my_exchange_plan.csv",
+            mime="text/csv"
+        )
+    else:
+        st.info("Plan is empty; nothing to export.")
