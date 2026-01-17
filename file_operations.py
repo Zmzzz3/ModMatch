@@ -3,7 +3,6 @@ import pandas as pd
 from pathlib import Path
 from typing import Optional, Literal
 
-
 class FileManager:
     """File manager for course exchange data storage."""
     
@@ -89,7 +88,7 @@ class FileManager:
             
         Raises:
             FileNotFoundError: If source file doesn't exist
-            IOError: If file cannot be read or written
+            IOError: If file cannot be read
         """
         source_path = Path(filepath)
         
@@ -103,15 +102,6 @@ class FileManager:
         except Exception as e:
             raise IOError(
                 f"Import failed: Cannot read file at {filepath}. Data is untouched. Error: {e}"
-            )
-        
-        try:
-            self._write_csv(df, file_type)
-        except IOError:
-            # Re-raise with import context
-            dest_path = self._get_path(file_type)
-            raise IOError(
-                f"Import failed: Cannot write to {dest_path}. Data is untouched."
             )
         
         return df
@@ -186,15 +176,6 @@ class FileManager:
     
     def import_pu(self, filepath: str) -> pd.DataFrame:
         return self._import_csv(filepath, 'pu')
-    
-    def import_mapping(self, filepath: str) -> pd.DataFrame:
-        return self._import_csv(filepath, 'mapping')
-    
-    def export_nus(self, filepath: str) -> None:
-        self._export_csv(filepath, 'nus')
-    
-    def export_pu(self, filepath: str) -> None:
-        self._export_csv(filepath, 'pu')
     
     def export_mapping(self, filepath: str) -> None:
         self._export_csv(filepath, 'mapping')
