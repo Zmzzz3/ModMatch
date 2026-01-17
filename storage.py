@@ -1,6 +1,6 @@
 import pandas as pd
-from typing import Union, List, Optional, Dict, Any, Tuple
-
+from typing import Union, List, Dict, Any
+from file_operations import FileManager
 
 class CourseStorage:
     """Storage manager for university course exchange mappings."""
@@ -10,6 +10,7 @@ class CourseStorage:
         self.nus_df = self._create_nus_df()
         self.partner_df = self._create_partner_df()
         self.pairings_df = self._create_pairings_df()
+        self.fm = FileManager()
     
     def _create_nus_df(self) -> pd.DataFrame:
         """Create an empty NUS modules dataframe."""
@@ -56,7 +57,7 @@ class CourseStorage:
     
     def replace_nus_df(self, df: pd.DataFrame) -> None:
         """
-        Replace the entire NUS modules dataframe.
+        Replace the entire NUS modules dataframe. Duplicates are automatically removed.
         
         Args:
             df: New dataframe to replace with
@@ -66,17 +67,22 @@ class CourseStorage:
         if not all(col in df.columns for col in required_cols):
             raise ValueError(f"DataFrame must contain columns: {required_cols}")
         
+        # Remove duplicates based on nus_code, keeping first occurrence
+        df = df.drop_duplicates(subset=['nus_code'], keep='first')
+        
         self.nus_df = df[required_cols].reset_index(drop=True)
+        
+        self.fm.write_nus(self.nus_df)
     
     def append_nus_entries(self, entries: Union[pd.DataFrame, List[Dict]]) -> pd.DataFrame:
         """
-        Append new entries to NUS modules dataframe.
+        Append new entries to NUS modules dataframe. Duplicates are automatically skipped.
         
         Args:
             entries: DataFrame or list of dictionaries with module information
             
         Returns:
-            DataFrame with the newly added entries
+            DataFrame with the newly added entries (excludes duplicates)
         """
         if isinstance(entries, list):
             entries = pd.DataFrame(entries)
@@ -84,9 +90,16 @@ class CourseStorage:
         entries = entries.copy()
         required_cols = ['nus_code', 'nus_mod', 'nus_desc']
         
-        self.nus_df = pd.concat([self.nus_df, entries[required_cols]], ignore_index=True)
+        # Filter out entries with nus_code that already exists
+        existing_codes = set(self.nus_df['nus_code'])
+        new_entries = entries[~entries['nus_code'].isin(existing_codes)][required_cols]
         
-        return entries[required_cols]
+        if len(new_entries) > 0:
+            self.nus_df = pd.concat([self.nus_df, new_entries], ignore_index=True)
+
+        self.fm.write_nus(self.nus_df)
+        
+        return new_entries.copy()
     
     def remove_nus_entries(self, indices: Union[int, List[int]]) -> pd.DataFrame:
         """
@@ -104,22 +117,35 @@ class CourseStorage:
         removed_entries = self.nus_df.loc[indices].copy()
         self.nus_df = self.nus_df.drop(indices).reset_index(drop=True)
         
+        self.fm.write_nus(self.nus_df)
+
         return removed_entries
     
     def edit_nus_entry(self, index: int, updates: Dict[str, Any]) -> pd.DataFrame:
         """
-        Edit a single NUS module entry.
+        Edit a single NUS module entry. If updating nus_code would create a duplicate, 
+        the nus_code update is ignored but other updates are applied.
         
         Args:
             index: Index of entry to edit
             updates: Dictionary of column: value pairs to update
             
         Returns:
-            DataFrame with the updated entry (single row)
+            DataFrame with the entry (single row)
         """
+        # Check if we're updating nus_code and if it would create a duplicate
+        if 'nus_code' in updates:
+            new_code = updates['nus_code']
+            existing_codes = self.nus_df[self.nus_df.index != index]['nus_code']
+            if new_code in existing_codes.values:
+                # Ignore the nus_code update, but apply other updates
+                updates = {k: v for k, v in updates.items() if k != 'nus_code'}
+        
         for col, value in updates.items():
             if col in self.nus_df.columns:
                 self.nus_df.at[index, col] = value
+
+        self.fm.write_nus(self.nus_df)
         
         return self.nus_df.loc[[index]].copy()
     
@@ -127,7 +153,7 @@ class CourseStorage:
     
     def replace_partner_df(self, df: pd.DataFrame) -> None:
         """
-        Replace the entire partner universities dataframe.
+        Replace the entire partner universities dataframe. Duplicates are automatically removed.
         
         Args:
             df: New dataframe to replace with
@@ -137,17 +163,22 @@ class CourseStorage:
         if not all(col in df.columns for col in required_cols):
             raise ValueError(f"DataFrame must contain columns: {required_cols}")
         
+        # Remove duplicates based on (pu, pu_code) combination, keeping first occurrence
+        df = df.drop_duplicates(subset=['pu', 'pu_code'], keep='first')
+        
         self.partner_df = self._sort_partner_df(df[required_cols])
+
+        self.fm.write_pu(self.partner_df)
     
     def append_partner_entries(self, entries: Union[pd.DataFrame, List[Dict]]) -> pd.DataFrame:
         """
-        Append new entries to partner universities dataframe.
+        Append new entries to partner universities dataframe. Duplicates are automatically skipped.
         
         Args:
             entries: DataFrame or list of dictionaries with course information
             
         Returns:
-            DataFrame with the newly added entries
+            DataFrame with the newly added entries (excludes duplicates)
         """
         if isinstance(entries, list):
             entries = pd.DataFrame(entries)
@@ -155,10 +186,21 @@ class CourseStorage:
         entries = entries.copy()
         required_cols = ['pu', 'pu_mod', 'pu_code', 'pu_desc']
         
-        self.partner_df = pd.concat([self.partner_df, entries[required_cols]], ignore_index=True)
-        self.partner_df = self._sort_partner_df(self.partner_df)
+        # Create composite keys for comparison
+        existing_keys = set(self.partner_df['pu'] + '::' + self.partner_df['pu_code'])
+        entries_with_key = entries.copy()
+        entries_with_key['_key'] = entries_with_key['pu'] + '::' + entries_with_key['pu_code']
         
-        return entries[required_cols]
+        # Filter out entries with (pu, pu_code) combinations that already exist
+        new_entries = entries_with_key[~entries_with_key['_key'].isin(existing_keys)][required_cols]
+        
+        if len(new_entries) > 0:
+            self.partner_df = pd.concat([self.partner_df, new_entries], ignore_index=True)
+            self.partner_df = self._sort_partner_df(self.partner_df)
+
+        self.fm.write_pu(self.partner_df)
+        
+        return new_entries.copy()
     
     def remove_partner_entries(self, indices: Union[int, List[int]]) -> pd.DataFrame:
         """
@@ -177,19 +219,36 @@ class CourseStorage:
         self.partner_df = self.partner_df.drop(indices).reset_index(drop=True)
         self.partner_df = self._sort_partner_df(self.partner_df)
         
+        self.fm.write_pu(self.partner_df)
+
         return removed_entries
     
     def edit_partner_entry(self, index: int, updates: Dict[str, Any]) -> pd.DataFrame:
         """
-        Edit a single partner university entry.
+        Edit a single partner university entry. If updating (pu, pu_code) would create a duplicate,
+        those updates are ignored but other updates are applied.
         
         Args:
             index: Index of entry to edit
             updates: Dictionary of column: value pairs to update
             
         Returns:
-            DataFrame with the updated entry (single row)
+            DataFrame with the entry (single row)
         """
+        # Check if we're updating pu or pu_code and if it would create a duplicate
+        if 'pu' in updates or 'pu_code' in updates:
+            new_pu = updates.get('pu', self.partner_df.at[index, 'pu'])
+            new_pu_code = updates.get('pu_code', self.partner_df.at[index, 'pu_code'])
+            
+            # Check if this combination exists elsewhere
+            other_entries = self.partner_df[self.partner_df.index != index]
+            existing_combo = ((other_entries['pu'] == new_pu) & 
+                            (other_entries['pu_code'] == new_pu_code)).any()
+            
+            if existing_combo:
+                # Ignore pu and pu_code updates, but apply other updates
+                updates = {k: v for k, v in updates.items() if k not in ['pu', 'pu_code']}
+        
         for col, value in updates.items():
             if col in self.partner_df.columns:
                 self.partner_df.at[index, col] = value
@@ -198,6 +257,8 @@ class CourseStorage:
         if 'pu' in updates or 'pu_code' in updates:
             self.partner_df = self._sort_partner_df(self.partner_df)
         
+        self.fm.write_pu(self.partner_df)
+
         return self.partner_df.loc[[index]].copy()
     
     # ==================== Unified Retrieval Operation ====================
@@ -342,6 +403,7 @@ class CourseStorage:
             new_pairings_df = pd.DataFrame(new_pairings)
             self.pairings_df = pd.concat([self.pairings_df, new_pairings_df], ignore_index=True)
             self.pairings_df = self._sort_pairings_df(self.pairings_df)
+            self.fm.write_mapping(self.pairings_df)
             return new_pairings_df
         else:
             return pd.DataFrame(columns=self.pairings_df.columns)
@@ -363,6 +425,8 @@ class CourseStorage:
         self.pairings_df = self.pairings_df.drop(indices).reset_index(drop=True)
         self.pairings_df = self._sort_pairings_df(self.pairings_df)
         
+        self.fm.write_mapping(self.pairings_df)
+
         return removed_pairings
     
     def update_pairing_score(self, index: int, new_score: float) -> pd.DataFrame:
@@ -377,6 +441,7 @@ class CourseStorage:
             DataFrame with the updated pairing (single row)
         """
         self.pairings_df.at[index, 'score'] = new_score
+        self.fm.write_mapping(self.pairings_df)
         return self.pairings_df.loc[[index]].copy()
     
     def get_pairings_for_nus_module(self, module_code: str) -> pd.DataFrame:
@@ -470,66 +535,4 @@ class CourseStorage:
         self.nus_df = self._create_nus_df()
         self.partner_df = self._create_partner_df()
         self.pairings_df = self._create_pairings_df()
-
-
-    # ==================== Persistence Operations ====================
-
-    def load_from_csv(self, nus_path: str, partner_path: str):
-        """
-        Load data from CSV files into the storage manager.
-        """
-        try:
-            home_df = pd.read_csv(nus_path)
-            self.replace_nus_df(home_df)
-            
-            partner_df = pd.read_csv(partner_path)
-            self.replace_partner_df(partner_df)
-            
-            print(f"✅ Successfully loaded data from {nus_path} and {partner_path}")
-        except FileNotFoundError as e:
-            print(f"❌ Error: Could not find file - {e}")
-        except Exception as e:
-            print(f"❌ An error occurred: {e}")
-
-
-
-    def import_source_data(self, nus_path: str, partner_path: str) -> None:
-        """
-        Load the initial university module lists from CSV.
-        """
-        try:
-            if nus_path:
-                df_h = pd.read_csv(nus_path)
-                self.replace_nus_df(df_h)
-            
-            if partner_path:
-                df_p = pd.read_csv(partner_path)
-                self.replace_partner_df(df_p)
-        except Exception as e:
-            raise Exception(f"Failed to import source data: {e}")
-
-
-    def export_pairings(self, filepath: str = "data/exchange_plan.csv") -> None:
-        """
-        Export the finalized exchange plan (pairings_df) to a CSV file.
-        """
-        if self.pairings_df.empty:
-            raise ValueError("No pairings to export.")
-        self.pairings_df.to_csv(filepath, index=False)
-
-
-    def import_pairings(self, filepath: str) -> None:
-        """
-        Load a previously saved exchange plan into the pairings_df.
-        """
-        try:
-            df = pd.read_csv(filepath)
-            required_cols = ['nus_code', 'pu', 'pu_code', 'score']
-            
-            # Basic validation to ensure the CSV matches our schema
-            if not all(col in df.columns for col in required_cols):
-                raise ValueError(f"CSV missing required columns: {required_cols}")
-            
-            self.pairings_df = self._sort_pairings_df(df[required_cols])
-        except Exception as e:
-            raise Exception(f"Failed to import pairings: {e}")
+        self.fm.write_all(self.nus_df, self.partner_df, self.pairings_df)
