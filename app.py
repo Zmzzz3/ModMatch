@@ -195,26 +195,45 @@ else:
         
         st.markdown("---") 
 
-# --- SIDEBAR FOR MANUAL IMPORT ---
+# --- SIDEBAR: DATA PERSISTENCE & INTEGRATION ---
 with st.sidebar:
-    st.header("Data Stuff")
-    st.write("Upload your own module lists to override the defaults.")
+    st.header("📥 Bulk Import")
+    st.write("Concatenate modules from an external CSV file into your app data.")
     
-    new_nus = st.file_uploader("Upload NUS Modules (CSV)", type="csv")
-    new_pu = st.file_uploader("Upload Partner Modules (CSV)", type="csv")
+    # Text input for filepath as per your logic
+    import_path = st.text_input("Source CSV Filepath", placeholder="C:/path/to/your_data.csv")
+    target_list = st.selectbox("Import to:", ["Partner Modules", "NUS Modules"])
     
-    if st.button("Update Module Tables"):
-        if new_nus or new_pu:
+    if st.button("Import & Append"):
+        if import_path:
             try:
-                storage.import_source_data(new_nus, new_pu)
-                st.success("Tables updated successfully!")
+                if target_list == "Partner Modules":
+                    storage.import_external_pu(import_path)
+                else:
+                    storage.import_external_nus(import_path)
+                st.success("Data concatenated and saved to internal storage!")
                 st.rerun()
             except Exception as e:
-                st.error(f"Error: {e}")
+                st.error(f"Import Error: {e}")
         else:
-            st.warning("Please upload at least one file.")
+            st.warning("Please provide a valid filepath.")
             
     st.divider()
-    st.caption("Required Headers:")
-    st.caption("NUS: nus_code, nus_mod, nus_desc")
-    st.caption("Partner: pu, pu_mod, pu_code, pu_desc")
+    
+    st.header("Export Result")
+    st.write("Save a copy of your Exchange Plan to a custom location.")
+    
+    export_path = st.text_input("Export Destination Path", placeholder="C:/path/to/export_plan.csv")
+    
+    if st.button("Export Exchange Plan"):
+        if export_path:
+            try:
+                storage.export_exchange_plan(export_path)
+                st.success(f"Plan successfully exported to {export_path}")
+            except Exception as e:
+                st.error(f"Export Error: {e}")
+        else:
+            st.warning("Please provide a destination filepath.")
+
+    st.divider()
+    st.caption("Internal data is saved automatically in the /data folder.")
