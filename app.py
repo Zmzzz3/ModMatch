@@ -18,12 +18,6 @@ st.markdown("""
 def init_backend():
     storage = CourseStorage()
     engine = MappingEngine()
-    
-    # Load default data from the /data folder automatically
-    try:
-        storage.import_source_data("data/home_modules.csv", "data/partner_modules.csv")
-    except Exception as e:
-        st.error(f"Initial data load failed: {e}")
         
     return storage, engine
 
@@ -129,7 +123,7 @@ if st.session_state.preview:
         else:
             st.info("Please select the rows you want to keep from the table above.")
 
-# SHOW FINAL PLANNER
+# --- SHOW FINAL PLANNER ---
 st.divider()
 st.header("Exchange Plan")
 
@@ -138,51 +132,78 @@ pairings = storage.get_pairings()
 if pairings.empty:
     st.info("No pairings saved yet. Complete Step 1 and 2 to see your plan here.")
 else:
-    # Display the final results from storage.pairings_df
-    st.dataframe(pairings, use_container_width=True, hide_index=True)
+    col_h1, col_h2 = st.columns([0.8, 0.2])
     
-    # Individual expansion for details
+
+    st.markdown("""
+        <div style='display: flex; font-weight: bold; border-bottom: 2px solid #ccc; padding-bottom: 5px; margin-bottom: 10px;'>
+            <div style='flex: 2;'>NUS Module</div>
+            <div style='flex: 2;'>Partner University</div>
+            <div style='flex: 2;'>Partner Module</div>
+            <div style='flex: 1;'>Match</div>
+            <div style='flex: 0.5;'></div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # list of pairings
     for i, row in pairings.iterrows():
-        # Get full details using helper from storage
+
         details = storage.get_course_details_for_pairing(i)
+
+        c1, c2, c3, c4, c5 = st.columns([2, 2, 2, 1, 0.5])
         
-        with st.expander(f"Details: {row['nus_code']} ↔ {row['pu_code']} ({row['pu']})"):
-            c1, c2 = st.columns(2)
-            with c1:
-                st.write(f"**NUS Module:** {details['nus_module']['nus_mod']}")
-                st.caption(details['nus_module']['nus_desc'])
-            with c2:
-                st.write(f"**Partner Course:** {details['partner_course']['pu_mod']}")
-                st.caption(details['partner_course']['pu_desc'])
-            
-            if st.button("Delete Mapping", key=f"del_{i}"):
+        with c1:
+            st.write(f"**{row['nus_code']}**")
+        with c2:
+            st.write(row['pu'])
+        with c3:
+            st.write(row['pu_code'])
+        with c4:
+            score = row['score']
+            color = "green" if score > 0.7 else "orange" if score > 0.4 else "red"
+            st.markdown(f"<span style='color:{color}; font-weight:bold;'>{score:.1%}</span>", unsafe_allow_html=True)
+        with c5:
+            if st.button("❌", key=f"del_{i}", help="Remove this pairing"):
                 storage.remove_pairing(i)
                 st.rerun()
+        
+        with st.expander("View Descriptions"):
+            d_col1, d_col2 = st.columns(2)
+            with d_col1:
+                st.markdown(f"**{details['nus_module']['nus_mod']}**")
+                st.caption(details['nus_module']['nus_desc'])
+            with d_col2:
+                st.markdown(f"**{details['partner_course']['pu_mod']}**")
+                st.caption(details['partner_course']['pu_desc'])
+        
+        st.markdown("---") 
 
-    if st.button("Clear Entire Plan"):
-        storage.clear_all()
-        st.rerun()
-
-# --- SIDEBAR FOR MANUAL IMPORT ---
+# --- SIDEBAR: DATA PERSISTENCE & INTEGRATION ---
 with st.sidebar:
-    st.header("Data Stuff")
-    st.write("Upload your own module lists to override the defaults.")
+    st.header("Import stuff")
+    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+    target = st.selectbox("Add to:", ["NUS Modules", "Partner Modules"])
     
-    new_nus = st.file_uploader("Upload NUS Modules (CSV)", type="csv")
-    new_pu = st.file_uploader("Upload Partner Modules (CSV)", type="csv")
+    if st.button("Execute Import"):
+        if uploaded_file:
+            if target == "Partner Modules":
+                storage.import_external_pu(uploaded_file)
+            else:
+                storage.import_external_nus(uploaded_file)
+            st.success("Successfully imported!")
+            st.rerun()
+
+with st.sidebar:
+    st.header("Export Stuff")
+
+    csv_string = storage.fm.get_export_buffer('mapping')
     
-    if st.button("Update Module Tables"):
-        if new_nus or new_pu:
-            try:
-                storage.import_source_data(new_nus, new_pu)
-                st.success("Tables updated successfully!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error: {e}")
-        else:
-            st.warning("Please upload at least one file.")
-            
-    st.divider()
-    st.caption("Required Headers:")
-    st.caption("NUS: nus_code, nus_mod, nus_desc")
-    st.caption("Partner: pu, pu_mod, pu_code, pu_desc")
+    if csv_string:
+        st.download_button(
+            label="Download Plan as CSV",
+            data=csv_string,
+            file_name="my_exchange_plan.csv",
+            mime="text/csv"
+        )
+    else:
+        st.info("Plan is empty; nothing to export.")

@@ -1,7 +1,7 @@
 
 import pandas as pd
 from pathlib import Path
-from typing import Optional, Literal
+from typing import Optional, Literal, Any
 
 class FileManager:
     """File manager for course exchange data storage."""
@@ -179,3 +179,22 @@ class FileManager:
     
     def export_mapping(self, filepath: str) -> None:
         self._export_csv(filepath, 'mapping')
+
+
+    def import_external_file(self, file_source: Any) -> pd.DataFrame:
+        """
+        Reads a CSV from a Streamlit UploadedFile object or a string path.
+        """
+        try:
+            return pd.read_csv(file_source)
+        except Exception as e:
+            raise IOError(f"Could not read the selected CSV file. Error: {e}")
+
+    def get_export_buffer(self, file_type: Literal['nus', 'pu', 'mapping']) -> str:
+        """
+        Converts internal data to a CSV string for browser downloading.
+        """
+        df = self._read_csv(file_type)
+        if df is None or df.empty:
+            return ""
+        return df.to_csv(index=False)
