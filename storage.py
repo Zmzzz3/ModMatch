@@ -482,17 +482,13 @@ class CourseStorage:
         self.fm.write_all(self.nus_df, self.partner_df, self.pairings_df)
 
     def import_external_pu(self, filepath: str):
-        """
-        User provides filepath -> call import method -> 
-        use processed df as argument to append entries method.
-        """
-        # this is a df
+        """Concatenate external PU modules from a user path to app storage."""
+        # this is a df of the new PU modules being imported
         new_data = self.fm.import_pu(filepath)
         
-        # 2. Call existing append method to concatenate and sort in memory
+        # concat to current df
         self.append_partner_entries(new_data)
         
-        # 3. Save the newly expanded list to the hidden app data file
         self.fm.write_pu(self.partner_df)
 
     def import_external_nus(self, filepath: str):
