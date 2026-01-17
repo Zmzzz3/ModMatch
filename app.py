@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
-from module_repo import ModuleRepository
+from storage import CourseStorage
 from mapping_engine import MappingEngine
 
-# --- PAGE SETUP ---
+# CONFIG
 st.set_page_config(page_title="ModMatch: SEP Planner", layout="wide")
 
 st.markdown("""
@@ -13,30 +13,41 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# INITIALISATION
 @st.cache_resource
 def init_backend():
-    repo = ModuleRepository("data/home_modules.csv", "data/partner_modules.csv")
+    storage = CourseStorage()
     engine = MappingEngine()
-    return repo, engine
+    
+    # Load default data from the /data folder automatically
+    try:
+        storage.import_source_data("data/home_modules.csv", "data/partner_modules.csv")
+    except Exception as e:
+        st.error(f"Initial data load failed: {e}")
+        
+    return storage, engine
 
-repo, engine = init_backend()
+if 'storage' not in st.session_state:
+    storage, engine = init_backend()
+    st.session_state.storage = storage
+    st.session_state.engine = engine
+else:
+    storage = st.session_state.storage
+    engine = st.session_state.engine
 
-# Initialize Session States
-if 'planner' not in st.session_state:
-    st.session_state.planner = []
 if 'preview' not in st.session_state:
     st.session_state.preview = []
 
-st.title("🔗 ModMatch: Multi-Step Planner")
+st.title("ModMatch: SEP Planner")
+st.write("Match NUS modules with Partner University courses using semantic similarity.")
 
-# --- SECTION 1: SELECTION ---
 st.header("Step 1: Select Modules for Comparison")
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("🏠 Home University (NUS)")
+    st.subheader("NUS Modules")
     home_sel = st.dataframe(
-        repo.df_home, 
+        storage.get_nus_entries(), 
         on_select="rerun", 
         selection_mode="single-row", 
         hide_index=True,
@@ -44,46 +55,48 @@ with col1:
     )
 
 with col2:
-    st.subheader("✈️ Partner University")
+    st.subheader("Partner University Modules")
     partner_sel = st.dataframe(
-        repo.df_partner, 
+        storage.get_partner_entries(), 
         on_select="rerun", 
         selection_mode="multi-row", 
         hide_index=True,
         use_container_width=True
     )
 
+# Logic to generate the preview list
 if st.button("Generate Comparison Preview", type="primary"):
-    h_idx = home_sel.selection.rows
-    p_indices = partner_sel.selection.rows
+    h_rows = home_sel.selection.rows
+    p_rows = partner_sel.selection.rows
 
-    if h_idx and p_indices:
-        # Extract the actual data rows from the indices
-        h_row = repo.df_home.iloc[h_idx[0]]
-        p_rows = repo.df_partner.iloc[p_indices]
+    if h_rows and p_rows:
+        # Get data from storage using selection indices
+        data_bundle = storage.get_course_pairs(h_rows[0], p_rows)
         
-        # Call abstracted logic to get preview objects
-        st.session_state.preview = engine.get_preview_pairings(h_row, p_rows)
-        st.success("Comparison complete! Review scores below.")
+        # call engine to generate 1-to-1 Mapping objects
+        st.session_state.preview = engine.get_preview_pairings(
+            data_bundle['nus_course'].iloc[0], 
+            data_bundle['partner_courses']
+        )
+        st.success(f"Calculated {len(st.session_state.preview)} similarity scores!")
     else:
-        st.warning("Please select 1 module from Home and at least 1 from Partner.")
+        st.warning("Please select 1 NUS module and at least 1 Partner course.")
 
 st.divider()
 
-# --- SECTION 2: PREVIEW & CONFIRMATION ---
+# PREVIEW AND SELECT
 if st.session_state.preview:
     st.header("Step 2: Review & Finalize Mappings")
+    st.write("Select the pairings you want to save to your final plan.")
     
-    # Create a simple DataFrame for the preview table
-    preview_data = [{
-        "Home Code": m.home_row['code'],
-        "Partner Code": m.partner_row['code'],
-        "AI Similarity": f"{m.similarity_score:.1%}"
-    } for m in st.session_state.preview]
+    # Prepare data for the preview dataframe
+    preview_df = pd.DataFrame([{
+        "NUS Code": m.home_row['nus_code'],
+        "Partner": m.partner_row['pu'],
+        "Partner Code": m.partner_row['pu_code'],
+        "Match Score": f"{m.similarity_score:.1%}"
+    } for m in st.session_state.preview])
     
-    preview_df = pd.DataFrame(preview_data)
-    
-    # Show the preview table for the user to choose pairings
     review_sel = st.dataframe(
         preview_df, 
         on_select="rerun", 
@@ -93,38 +106,83 @@ if st.session_state.preview:
     )
 
     if st.button("Confirm Selections & Add to Plan"):
-        selected_review_indices = review_sel.selection.rows
+        selected_preview_indices = review_sel.selection.rows
         
-        if selected_review_indices:
-            # Call abstracted logic to finalize the data
-            final_mappings = engine.finalize_selections(st.session_state.preview, selected_review_indices)
+        if selected_preview_indices:
+            # use engine to extract original indices from our Mapping objects
+            final_payload = engine.finalize_selections(
+                st.session_state.preview, 
+                selected_preview_indices
+            )
             
-            # Add to permanent planner
-            st.session_state.planner.extend(final_mappings)
+            # Pass directly to CourseStorage pairing logic
+            storage.add_pairing(
+                nus_index=final_payload["nus_index"],
+                partner_index=final_payload["partner_indices"],
+                score=final_payload["scores"]
+            )
             
-            # Clear preview to reset the UI
+            # refresh preview
             st.session_state.preview = []
-            st.success(f"Added {len(final_mappings)} mappings to your plan!")
+            st.success("Successfully added to your Final Plan!")
             st.rerun()
         else:
-            st.info("Select the rows you wish to keep from the preview table above.")
+            st.info("Please select the rows you want to keep from the table above.")
 
-# --- SECTION 3: THE FINAL PLANNER ---
+# SHOW FINAL PLANNER
 st.divider()
-st.header("📋 Final Exchange Planner")
+st.header("Exchange Plan")
 
-if not st.session_state.planner:
-    st.info("Your final planner is empty.")
+pairings = storage.get_pairings()
+
+if pairings.empty:
+    st.info("No pairings saved yet. Complete Step 1 and 2 to see your plan here.")
 else:
-    for i, m in enumerate(st.session_state.planner):
-        label = f"{m.home_row['code']} ↔ {m.partner_row['code']} | Match: {m.similarity_score:.1%}"
-        with st.expander(label):
-            st.write(f"**Home:** {m.home_row['name']}")
-            st.write(f"**Partner:** {m.partner_row['name']}")
-            if st.button("Remove Mapping", key=f"perm_del_{i}"):
-                st.session_state.planner.pop(i)
+    # Display the final results from storage.pairings_df
+    st.dataframe(pairings, use_container_width=True, hide_index=True)
+    
+    # Individual expansion for details
+    for i, row in pairings.iterrows():
+        # Get full details using helper from storage
+        details = storage.get_course_details_for_pairing(i)
+        
+        with st.expander(f"Details: {row['nus_code']} ↔ {row['pu_code']} ({row['pu']})"):
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write(f"**NUS Module:** {details['nus_module']['nus_mod']}")
+                st.caption(details['nus_module']['nus_desc'])
+            with c2:
+                st.write(f"**Partner Course:** {details['partner_course']['pu_mod']}")
+                st.caption(details['partner_course']['pu_desc'])
+            
+            if st.button("Delete Mapping", key=f"del_{i}"):
+                storage.remove_pairing(i)
                 st.rerun()
 
-    if st.button("Clear All Plan Data"):
-        st.session_state.planner = []
+    if st.button("Clear Entire Plan"):
+        storage.clear_all()
         st.rerun()
+
+# --- SIDEBAR FOR MANUAL IMPORT ---
+with st.sidebar:
+    st.header("Data Stuff")
+    st.write("Upload your own module lists to override the defaults.")
+    
+    new_nus = st.file_uploader("Upload NUS Modules (CSV)", type="csv")
+    new_pu = st.file_uploader("Upload Partner Modules (CSV)", type="csv")
+    
+    if st.button("Update Module Tables"):
+        if new_nus or new_pu:
+            try:
+                storage.import_source_data(new_nus, new_pu)
+                st.success("Tables updated successfully!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error: {e}")
+        else:
+            st.warning("Please upload at least one file.")
+            
+    st.divider()
+    st.caption("Required Headers:")
+    st.caption("NUS: nus_code, nus_mod, nus_desc")
+    st.caption("Partner: pu, pu_mod, pu_code, pu_desc")
