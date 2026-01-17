@@ -129,7 +129,7 @@ if st.session_state.preview:
         else:
             st.info("Please select the rows you want to keep from the table above.")
 
-# SHOW FINAL PLANNER
+# --- SHOW FINAL PLANNER ---
 st.divider()
 st.header("Exchange Plan")
 
@@ -138,30 +138,62 @@ pairings = storage.get_pairings()
 if pairings.empty:
     st.info("No pairings saved yet. Complete Step 1 and 2 to see your plan here.")
 else:
-    # Display the final results from storage.pairings_df
-    st.dataframe(pairings, use_container_width=True, hide_index=True)
-    
-    # Individual expansion for details
+    # 1. Action Header
+    col_h1, col_h2 = st.columns([0.8, 0.2])
+    with col_h2:
+        if st.button("🗑️ Clear All", use_container_width=True):
+            storage.clear_all()
+            st.rerun()
+
+    # 2. Table Header
+    # We create a simulated table header using columns
+    st.markdown("""
+        <div style='display: flex; font-weight: bold; border-bottom: 2px solid #ccc; padding-bottom: 5px; margin-bottom: 10px;'>
+            <div style='flex: 2;'>NUS Module</div>
+            <div style='flex: 2;'>Partner University</div>
+            <div style='flex: 2;'>Partner Module</div>
+            <div style='flex: 1;'>Match</div>
+            <div style='flex: 0.5;'></div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # 3. List of Pairings
     for i, row in pairings.iterrows():
-        # Get full details using helper from storage
+        # Get full details for the expander content
         details = storage.get_course_details_for_pairing(i)
         
-        with st.expander(f"Details: {row['nus_code']} ↔ {row['pu_code']} ({row['pu']})"):
-            c1, c2 = st.columns(2)
-            with c1:
-                st.write(f"**NUS Module:** {details['nus_module']['nus_mod']}")
-                st.caption(details['nus_module']['nus_desc'])
-            with c2:
-                st.write(f"**Partner Course:** {details['partner_course']['pu_mod']}")
-                st.caption(details['partner_course']['pu_desc'])
-            
-            if st.button("Delete Mapping", key=f"del_{i}"):
+        # Create columns: 4 for data, 1 for the delete button
+        c1, c2, c3, c4, c5 = st.columns([2, 2, 2, 1, 0.5])
+        
+        with c1:
+            st.write(f"**{row['nus_code']}**")
+        with c2:
+            st.write(row['pu'])
+        with c3:
+            st.write(row['pu_code'])
+        with c4:
+            # Color the score based on strength
+            score = row['score']
+            color = "green" if score > 0.7 else "orange" if score > 0.4 else "red"
+            st.markdown(f"<span style='color:{color}; font-weight:bold;'>{score:.1%}</span>", unsafe_allow_html=True)
+        with c5:
+            # Delete button at the end of the row
+            if st.button("❌", key=f"del_{i}", help="Remove this pairing"):
                 storage.remove_pairing(i)
                 st.rerun()
-
-    if st.button("Clear Entire Plan"):
-        storage.clear_all()
-        st.rerun()
+        
+        # 4. Integrated Dropdown for Details
+        # This sits immediately under the row data
+        with st.expander("View Descriptions"):
+            d_col1, d_col2 = st.columns(2)
+            with d_col1:
+                st.markdown(f"**{details['nus_module']['nus_mod']}**")
+                st.caption(details['nus_module']['nus_desc'])
+            with d_col2:
+                st.markdown(f"**{details['partner_course']['pu_mod']}**")
+                st.caption(details['partner_course']['pu_desc'])
+        
+        st.markdown("---") 
 
 # --- SIDEBAR FOR MANUAL IMPORT ---
 with st.sidebar:
