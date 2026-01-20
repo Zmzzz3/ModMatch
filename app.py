@@ -198,7 +198,7 @@ else:
 # --- SIDEBAR: DATA PERSISTENCE & INTEGRATION ---
 with st.sidebar:
     st.header("Import stuff")
-    uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+    uploaded_file = st.file_uploader("Choose a file", type=["csv", "json"])
     target = st.selectbox("Add to:", ["NUS Modules", "Partner Modules"])
     
     if st.button("Execute Import"):
@@ -215,22 +215,24 @@ with st.sidebar:
 
     if st.button("Import from NUSMods"):
         try:
-            storage.append_nus_entries(fm.read_nus())#fetch_nusmods_data())
+            storage.append_nus_entries(fm.read_nus())
         except Exception as e:
-            print(e)
+            st.error(f"Import failed: {e}")
 
 with st.sidebar:
     st.header("Export Stuff")
-
-    csv_string = fm.get_export_buffer('mapping')
     
-    if csv_string:
+    export_format = st.radio("Format:", ["CSV", "JSON"], horizontal=True)
+    
+    format_ext = export_format.lower()
+    export_buffer = fm.get_export_buffer('mapping', format_ext)
+    
+    if export_buffer:
         st.download_button(
-            label="Download Plan as CSV",
-            data=csv_string,
-            file_name="my_exchange_plan.csv",
-            mime="text/csv"
+            label=f"Download Plan as {export_format}",
+            data=export_buffer,
+            file_name=f"my_exchange_plan.{format_ext}",
+            mime=f"text/{format_ext}" if format_ext == "csv" else "application/json"
         )
     else:
         st.info("Plan is empty; nothing to export.")
-

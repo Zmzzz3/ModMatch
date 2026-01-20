@@ -123,7 +123,7 @@ class FileManager:
             )
 
 
-    def get_export_buffer(self, file_type: Literal['nus', 'pu', 'mapping'], format: str = 'csv') -> Union[str, bytes]:
+    def get_export_buffer(self, file_type: Literal['nus', 'pu', 'mapping'], format) -> Union[str, bytes]:
         """
         Converts internal data to a string/bytes buffer for browser downloading.
         
