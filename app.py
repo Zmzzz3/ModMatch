@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
 from storage import CourseStorage
+from file_operations import FileManager
 from mapping_engine import MappingEngine
+from fetchnus import fetch_nusmods_data
 
 # CONFIG
 st.set_page_config(page_title="ModMatch: SEP Planner", layout="wide")
@@ -18,16 +20,19 @@ st.markdown("""
 def init_backend():
     storage = CourseStorage()
     engine = MappingEngine()
+    fm = FileManager()
         
-    return storage, engine
+    return storage, engine, fm
 
 if 'storage' not in st.session_state:
-    storage, engine = init_backend()
+    storage, engine, fm = init_backend()
     st.session_state.storage = storage
     st.session_state.engine = engine
+    st.session_state.fm = fm
 else:
     storage = st.session_state.storage
     engine = st.session_state.engine
+    fm = st.session_state.fm
 
 if 'preview' not in st.session_state:
     st.session_state.preview = []
@@ -199,16 +204,25 @@ with st.sidebar:
     if st.button("Execute Import"):
         if uploaded_file:
             if target == "Partner Modules":
-                storage.import_external_pu(uploaded_file)
+                storage.append_partner_entries(fm.import_pu(uploaded_file))
             else:
-                storage.import_external_nus(uploaded_file)
+                storage.append_nus_entries(fm.import_nus(uploaded_file))
             st.success("Successfully imported!")
             st.rerun()
 
 with st.sidebar:
+    st.header("Import from NUSMods")
+
+    if st.button("Import from NUSMods"):
+        try:
+            storage.append_nus_entries(fm.read_nus())#fetch_nusmods_data())
+        except Exception as e:
+            print(e)
+
+with st.sidebar:
     st.header("Export Stuff")
 
-    csv_string = storage.fm.get_export_buffer('mapping')
+    csv_string = fm.get_export_buffer('mapping')
     
     if csv_string:
         st.download_button(
@@ -219,3 +233,4 @@ with st.sidebar:
         )
     else:
         st.info("Plan is empty; nothing to export.")
+

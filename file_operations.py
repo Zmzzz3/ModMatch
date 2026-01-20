@@ -1,18 +1,12 @@
 
 import pandas as pd
 from pathlib import Path
-from typing import Optional, Literal, Any
+from typing import Optional, Literal, Any, Union
 
 class FileManager:
     """File manager for course exchange data storage."""
     
     def __init__(self, base_dir: str = "data"):
-        """
-        Initialize file manager with base directory.
-        
-        Args:
-            base_dir: Base directory for data files (default: "data")
-        """
         self.base_dir = Path(base_dir)
         self.nus_path = self.base_dir / "nus.csv"
         self.pu_path = self.base_dir / "pu.csv"
@@ -32,119 +26,141 @@ class FileManager:
     
     # ==================== Base Read/Write Methods ====================
     
-    def _read_csv(self, file_type: Literal['nus', 'pu', 'mapping']) -> Optional[pd.DataFrame]:
-        """
-        Base method to read CSV file.
-        
-        Args:
-            file_type: Type of file to read ('nus', 'pu', or 'mapping')
-            
-        Returns:
-            DataFrame if file exists, None otherwise
-            
-        Raises:
-            IOError: If file exists but cannot be read
-        """
+    def _read_file(self, file_type: Literal['nus', 'pu', 'mapping']) -> pd.DataFrame:
         path = self._get_path(file_type)
         
         if not path.exists():
-            return None
+            return pd.DataFrame()
         
         try:
-            return pd.read_csv(path)
+            if path.suffix.lower() == '.csv':
+                return pd.read_csv(path)
+            elif path.suffix.lower() == '.json':
+                return pd.read_json(path)
+            else:
+                raise ValueError(f"Unsupported file type: {path.suffix}")
         except Exception as e:
             raise IOError(f"Failed to read {file_type} data from {path}. Data is untouched. Error: {e}")
     
-    def _write_csv(self, df: pd.DataFrame, file_type: Literal['nus', 'pu', 'mapping']) -> None:
-        """
-        Base method to write CSV file. Creates file if it doesn't exist.
-        
-        Args:
-            df: DataFrame to write
-            file_type: Type of file to write ('nus', 'pu', or 'mapping')
-            
-        Raises:
-            IOError: If write operation fails
-        """
+    def _write_file(self, df: pd.DataFrame, file_type: Literal['nus', 'pu', 'mapping']) -> None:
         path = self._get_path(file_type)
         
         try:
             # Ensure directory exists
             path.parent.mkdir(parents=True, exist_ok=True)
-            df.to_csv(path, index=False)
+            if path.suffix.lower() == '.csv':
+                df.to_csv(path, index=False)
+            elif path.suffix.lower() == '.json':
+                df.to_json(path, orient='records', indent=2)
+            else:
+                raise ValueError(f"Unsupported file type: {path.suffix}")
         except Exception as e:
             raise IOError(f"Failed to write {file_type} data to {path}. Data is untouched. Error: {e}")
     
-    def _import_csv(self, filepath: str, file_type: Literal['nus', 'pu', 'mapping']) -> pd.DataFrame:
+    def _import_file(self, file_source: Any, file_type: Literal['nus', 'pu', 'mapping']) -> pd.DataFrame:
         """
-        Base method to import CSV from external file.
+        Import data from a file-like object (e.g., Streamlit UploadedFile, BytesIO).
         
-        Args:
-            filepath: Path to source CSV file
-            file_type: Type of file to import ('nus', 'pu', or 'mapping')
-            
+        Parameters:
+        -----------
+        file_source : file-like object
+            File object to read from (e.g., UploadedFile, BytesIO)
+        file_type : Literal['nus', 'pu', 'mapping']
+            Type of file being imported
+        
         Returns:
-            DataFrame that was imported
-            
-        Raises:
-            FileNotFoundError: If source file doesn't exist
-            IOError: If file cannot be read
+        --------
+        pd.DataFrame
+            Imported data
         """
-        source_path = Path(filepath)
-        
-        if not source_path.exists():
-            raise FileNotFoundError(
-                f"Import failed: Source file not found at {filepath}. Data is untouched."
-            )
-        
         try:
-            df = pd.read_csv(source_path)
+            # Try to get filename to determine file type
+            filename = getattr(file_source, 'name', '')
+            
+            if filename.endswith('.csv') or not filename:
+                # Default to CSV if no extension or .csv
+                return pd.read_csv(file_source)
+            elif filename.endswith('.json'):
+                return pd.read_json(file_source)
+            else:
+                raise ValueError(f"Unsupported file type: {filename}")
         except Exception as e:
             raise IOError(
-                f"Import failed: Cannot read file at {filepath}. Data is untouched. Error: {e}"
+                f"Import failed: Cannot read file object. Data is untouched. Error: {e}"
             )
-        
-        return df
-    
-    def _export_csv(self, filepath: str, file_type: Literal['nus', 'pu', 'mapping']) -> None:
+
+
+    def _export_file(self, file_destination: Any, file_type: Literal['nus', 'pu', 'mapping']) -> None:
         """
-        Base method to export CSV to external file.
+        Export data to a file-like object.
         
-        Args:
-            filepath: Destination path for CSV file
-            file_type: Type of file to export ('nus', 'pu', or 'mapping')
-            
-        Raises:
-            FileNotFoundError: If source data doesn't exist
-            IOError: If file cannot be written
+        Parameters:
+        -----------
+        file_destination : file-like object
+            Writable file object (e.g., BytesIO)
+        file_type : Literal['nus', 'pu', 'mapping']
+            Type of file being exported
         """
-        df = self._read_csv(file_type)
-        source_path = self._get_path(file_type)
+        df = self._read_file(file_type)
         
         if df is None:
             raise FileNotFoundError(
-                f"Export failed: No {file_type} data found at {source_path}. Data is untouched."
+                f"Export failed: No {file_type} data found. Data is untouched."
             )
         
         try:
-            export_path = Path(filepath)
-            export_path.parent.mkdir(parents=True, exist_ok=True)
-            df.to_csv(export_path, index=False)
+            # Try to determine format from filename attribute
+            filename = getattr(file_destination, 'name', '')
+            
+            if filename.endswith('.json'):
+                df.to_json(file_destination, orient='records', indent=2)
+            else:
+                # Default to CSV
+                df.to_csv(file_destination, index=False)
         except Exception as e:
             raise IOError(
-                f"Export failed: Cannot write to {filepath}. Data is untouched. Error: {e}"
+                f"Export failed: Cannot write to file object. Data is untouched. Error: {e}"
             )
+
+
+    def get_export_buffer(self, file_type: Literal['nus', 'pu', 'mapping'], format: str = 'csv') -> Union[str, bytes]:
+        """
+        Converts internal data to a string/bytes buffer for browser downloading.
+        
+        Parameters:
+        -----------
+        file_type : Literal['nus', 'pu', 'mapping']
+            Type of data to export
+        format : str
+            Export format ('csv' or 'json')
+        
+        Returns:
+        --------
+        str or bytes
+            CSV string or JSON string
+        """
+        df = self._read_file(file_type)
+        
+        if df is None or df.empty:
+            return ""
+        
+        if format.lower() == 'csv':
+            return df.to_csv(index=False)
+        elif format.lower() == 'json':
+            return df.to_json(orient='records', indent=2)
+        else:
+            raise ValueError(f"Unsupported format: {format}")
     
     # ==================== Read Operations ====================
     
-    def read_nus(self) -> Optional[pd.DataFrame]:
-        return self._read_csv('nus')
+    def read_nus(self) -> pd.DataFrame:
+        return self._read_file('nus')
     
-    def read_pu(self) -> Optional[pd.DataFrame]:
-        return self._read_csv('pu')
+    def read_pu(self) -> pd.DataFrame:
+        return self._read_file('pu')
     
-    def read_mapping(self) -> Optional[pd.DataFrame]:
-        return self._read_csv('mapping')
+    def read_mapping(self) -> pd.DataFrame:
+        return self._read_file('mapping')
     
     def read_all(self) -> dict:
         return {
@@ -156,13 +172,13 @@ class FileManager:
     # ==================== Write Operations ====================
     
     def write_nus(self, df: pd.DataFrame) -> None:
-        self._write_csv(df, 'nus')
+        self._write_file(df, 'nus')
     
     def write_pu(self, df: pd.DataFrame) -> None:
-        self._write_csv(df, 'pu')
+        self._write_file(df, 'pu')
     
     def write_mapping(self, df: pd.DataFrame) -> None:
-        self._write_csv(df, 'mapping')
+        self._write_file(df, 'mapping')
     
     def write_all(self, nus_df: pd.DataFrame, pu_df: pd.DataFrame, mapping_df: pd.DataFrame) -> None:
         self.write_nus(nus_df)
@@ -170,31 +186,12 @@ class FileManager:
         self.write_mapping(mapping_df)
     
     # ==================== Import/Export Operations ====================
-    
-    def import_nus(self, filepath: str) -> pd.DataFrame:
-        return self._import_csv(filepath, 'nus')
-    
-    def import_pu(self, filepath: str) -> pd.DataFrame:
-        return self._import_csv(filepath, 'pu')
-    
-    def export_mapping(self, filepath: str) -> None:
-        self._export_csv(filepath, 'mapping')
 
+    def import_nus(self, file_source: Any) -> pd.DataFrame:
+        return self._import_file(file_source, 'nus')
 
-    def import_external_file(self, file_source: Any) -> pd.DataFrame:
-        """
-        Reads a CSV from a Streamlit UploadedFile object or a string path.
-        """
-        try:
-            return pd.read_csv(file_source)
-        except Exception as e:
-            raise IOError(f"Could not read the selected CSV file. Error: {e}")
+    def import_pu(self, file_source: Any) -> pd.DataFrame:
+        return self._import_file(file_source, 'pu')
 
-    def get_export_buffer(self, file_type: Literal['nus', 'pu', 'mapping']) -> str:
-        """
-        Converts internal data to a CSV string for browser downloading.
-        """
-        df = self._read_csv(file_type)
-        if df is None or df.empty:
-            return ""
-        return df.to_csv(index=False)
+    def export_mapping(self, file_destination: Any) -> None:
+        self._export_file(file_destination, 'mapping')

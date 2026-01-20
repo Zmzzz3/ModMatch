@@ -540,31 +540,6 @@ class CourseStorage:
         self.pairings_df = self._create_pairings_df()
         self.fm.write_all(self.nus_df, self.partner_df, self.pairings_df)
 
-
-
     def sync_to_disk(self):
         """Invisible background operation: Save all current memory to app data files."""
         self.fm.write_all(self.nus_df, self.partner_df, self.pairings_df)
-
-    def import_external_pu(self, file_object):
-        """Browse for file -> Read -> Append -> Save to internal pu.csv"""
-        # Read the uploaded CSV into a temporary dataframe
-        new_data = pd.read_csv(file_object)
-        
-        # self.append_partner_entries handles the concat, sorting, 
-        # duplicate checking, AND calls fm.write_pu internally.
-        self.append_partner_entries(new_data)
-
-    def import_external_nus(self, file_object):
-        """Browse for file -> Read -> Append -> Save to internal nus.csv"""
-        new_data = pd.read_csv(file_object)
-        self.append_nus_entries(new_data)
-
-    def export_exchange_plan(self, destination_path: str):
-        """
-        Export strictly the mapping/plan data to a user-desired location.
-        """
-        if self.pairings_df.empty:
-            raise ValueError("The exchange plan is empty. Nothing to export.")
-        
-        self.fm.export_mapping(destination_path)
